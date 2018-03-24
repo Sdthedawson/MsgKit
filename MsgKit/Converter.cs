@@ -42,8 +42,7 @@ namespace MsgKit
         ///     Converts an EML file to MSG format
         /// </summary>
         /// <param name="emlFileName">The EML (MIME) file</param>
-        /// <param name="msgFileName">The MSG file</param>
-        public static void ConvertEmlToMsg(string emlFileName, string msgFileName)
+        private static Email ConvertEmlToMsgLib(string emlFileName)
         {
             var eml = MimeMessage.Load(emlFileName);
             var sender = new Sender(string.Empty, string.Empty);
@@ -120,14 +119,14 @@ namespace MsgKit
 
             var skipFirst = true;
 
-            foreach (var bodyPart in eml.BodyParts)
+            foreach (var bodyPart in eml.Attachments)
             {
                 // We always skip the first bodypart because that is normaly the html, text or rtf body
-                if (skipFirst)
-                {
-                    skipFirst = false;
-                    continue;
-                }
+                //if (skipFirst)
+                //{
+                //    skipFirst = false;
+                //    continue;
+                //}
 
                 var attachmentStream = new MemoryStream();
                 var fileName = bodyPart.ContentType.Name;
@@ -157,7 +156,7 @@ namespace MsgKit
                 else
                 {
                     var part = (MimePart) bodyPart;
-                    part.ContentObject.DecodeTo(attachmentStream);
+                    part.Content.DecodeTo(attachmentStream);
                     fileName = part.FileName;
                     bodyPart.WriteTo(attachmentStream);
                 }
@@ -175,11 +174,25 @@ namespace MsgKit
                 
                 attachmentStream.Position = 0;
                 msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
-
             }
 
-            msg.Save(msgFileName);
+            return msg;
         }
+
+        /// <summary>
+        ///     Converts an EML file to MSG format
+        /// </summary>
+        /// <param name="emlFileName">The EML (MIME) file</param>
+        /// <param name="msgFileName">The MSG file</param>
+        public static void ConvertEmlToMsg(string emlFileName, string msgFileName) =>
+            ConvertEmlToMsgLib(emlFileName).Save(msgFileName);
+
+        /// <summary>
+        ///     Converts an EML file to MSG format
+        /// </summary>
+        /// <param name="emlFileName">The EML (MIME) file</param>
+        public static Email ConvertEmlToMsg(string emlFileName) => 
+            ConvertEmlToMsgLib(emlFileName);
         #endregion
 
         #region ConvertMsgToEml
