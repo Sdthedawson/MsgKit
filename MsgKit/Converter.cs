@@ -29,6 +29,7 @@ using System.IO;
 using System.Text;
 using MimeKit;
 using MsgKit.Helpers;
+using System.Linq;
 
 namespace MsgKit
 {
@@ -46,14 +47,12 @@ namespace MsgKit
         {
             var eml = MimeMessage.Load(emlFileName);
             var sender = new Sender(string.Empty, string.Empty);
+            var FromAddress = ((MailboxAddress)eml.From[0]);
 
             if (eml.From.Count > 0)
-            {
-                var mailAddress = ((MailboxAddress) eml.From[0]);
-                sender = new Sender(mailAddress.Address, mailAddress.Name);
-            }
+                sender = new Sender(FromAddress.Address, FromAddress.Name);
 
-            var representing = new Representing(string.Empty, string.Empty);
+            var representing = new Representing(FromAddress.Address, FromAddress.Name); //Default to from address
             if (eml.ResentSender != null)
                 representing = new Representing(eml.ResentSender.Address, eml.ResentSender.Name);
 
@@ -117,63 +116,89 @@ namespace MsgKit
             msg.BodyHtml = eml.HtmlBody;
             msg.BodyText = eml.TextBody;
 
-            var skipFirst = true;
-
-            foreach (var bodyPart in eml.Attachments)
+            var NamelessCount = 0;
+            foreach (var bodyPart in eml.BodyParts)
             {
-                // We always skip the first bodypart because that is normaly the html, text or rtf body
-                //if (skipFirst)
-                //{
-                //    skipFirst = false;
-                //    continue;
-                //}
+                var type = bodyPart.GetType();
+                if (type.Equals(typeof(TextPart))) //Make sure the TextPart isnt TextBody or HtmlBody
+                {
+                    var part = (TextPart)bodyPart;
+                    if ( new[] { eml.TextBody, eml.HtmlBody }.Contains(part.Text) )
+                    {
+                        continue; //Break conversion
+                    }
+                    else if(part.ContentDisposition?.Disposition == ContentDisposition.Inline && 
+                        string.IsNullOrEmpty(bodyPart.ContentId)) //If TextPart is inline but doesnt have content defined
+                    {
+                        msg.BodyText += Environment.NewLine + part.Text; //Append text to the body of the email
+                        msg.BodyHtml += part.Text.Replace(Environment.NewLine, "<br>");
+                        continue;
+                    }
+                }
 
+                //Get the body part and convert as needed
                 var attachmentStream = new MemoryStream();
                 var fileName = bodyPart.ContentType.Name;
                 var extension = string.Empty;
-
-                if (bodyPart is MessagePart)
+                
+                if (type.Equals(typeof(MessagePart))) 
                 {
-                    var part = (MessagePart) bodyPart;
+                    var part = (MessagePart)bodyPart;
                     part.Message.WriteTo(attachmentStream);
                     if (part.Message != null)
                         fileName = part.Message.Subject;
-
                     extension = ".eml";
                 }
-                else if (bodyPart is MessageDispositionNotification)
+                else if ( type.Equals(typeof(MessageDispositionNotification) ))
                 {
-                    var part = (MessageDispositionNotification) bodyPart;
+                    var part = (MessageDispositionNotification)bodyPart;
                     fileName = part.FileName;
                 }
-                else if (bodyPart is MessageDeliveryStatus)
+                else if (type.Equals(typeof(MessageDeliveryStatus)))
                 {
-                    var part = (MessageDeliveryStatus) bodyPart;
+                    var part = (MessageDeliveryStatus)bodyPart;
                     fileName = "details";
                     extension = ".txt";
                     part.WriteTo(FormatOptions.Default, attachmentStream, true);
                 }
                 else
                 {
-                    var part = (MimePart) bodyPart;
+                    var part = (MimePart)bodyPart;
                     part.Content.DecodeTo(attachmentStream);
                     fileName = part.FileName;
                     bodyPart.WriteTo(attachmentStream);
                 }
-               
+
                 fileName = string.IsNullOrWhiteSpace(fileName)
-                    ? "Nameless"
+                    ? "Nameless" + (NamelessCount++ > 0 ? NamelessCount.ToString() : "")
                     : FileManager.RemoveInvalidFileNameChars(fileName);
 
                 if (!string.IsNullOrEmpty(extension))
                     fileName += extension;
 
-                var inline = bodyPart.ContentDisposition != null &&
-                    bodyPart.ContentDisposition.Disposition.Equals("inline",
-                        StringComparison.InvariantCultureIgnoreCase);
-                
+                var inline = bodyPart.ContentDisposition?.Disposition.Equals(
+                    ContentDisposition.Inline, 
+                    StringComparison.InvariantCultureIgnoreCase) ?? false;
+
+                if (inline && string.IsNullOrEmpty(bodyPart.ContentId))
+                {
+                    inline = false;
+                    string errPath = @"E:\Users\Scott Dawson\Source Control\Git\Tools\Maildir2Pst";
+                    File.Copy(emlFileName, errPath + @"\Maildir2Pst_Err\" + Path.GetFileName(emlFileName), true);
+                }
+
                 attachmentStream.Position = 0;
-                msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
+
+                try
+                {
+                    msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
+                }
+                catch(System.Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine(ex);
+                    Console.ForegroundColor = ConsoleColor.White;
+                }
             }
 
             return msg;
