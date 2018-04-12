@@ -183,22 +183,14 @@ namespace MsgKit
                 if (inline && string.IsNullOrEmpty(bodyPart.ContentId))
                 {
                     inline = false;
-                    string errPath = @"E:\Users\Scott Dawson\Source Control\Git\Tools\Maildir2Pst";
-                    File.Copy(emlFileName, errPath + @"\Maildir2Pst_Err\" + Path.GetFileName(emlFileName), true);
+                    //string errPath = @"E:\Users\Scott Dawson\Source Control\Git\Tools\Maildir2Pst";
+                    //File.Copy(emlFileName, errPath + @"\Maildir2Pst_Err\" + Path.GetFileName(emlFileName), true);
                 }
 
                 attachmentStream.Position = 0;
 
-                try
-                {
-                    msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
-                }
-                catch(System.Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine(ex);
-                    Console.ForegroundColor = ConsoleColor.White;
-                }
+                msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
+             
             }
 
             return msg;
