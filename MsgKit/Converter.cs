@@ -30,6 +30,7 @@ using System.Text;
 using MimeKit;
 using MsgKit.Helpers;
 using System.Linq;
+using MsgKit.Exceptions;
 
 namespace MsgKit
 {
@@ -116,81 +117,82 @@ namespace MsgKit
             msg.BodyHtml = eml.HtmlBody;
             msg.BodyText = eml.TextBody;
 
-            var NamelessCount = 0;
-            foreach (var bodyPart in eml.BodyParts)
+            try
             {
-                var type = bodyPart.GetType();
-                if (type.Equals(typeof(TextPart))) //Make sure the TextPart isnt TextBody or HtmlBody
+                var NamelessCount = 0;
+                foreach (var bodyPart in eml.BodyParts)
                 {
-                    var part = (TextPart)bodyPart;
-                    if ( new[] { eml.TextBody, eml.HtmlBody }.Contains(part.Text) )
+                    var type = bodyPart.GetType();
+                    if (type.Equals(typeof(TextPart))) //Make sure the TextPart isnt TextBody or HtmlBody
                     {
-                        continue; //Break conversion
+                        var part = (TextPart)bodyPart;
+                        if (new[] { eml.TextBody, eml.HtmlBody }.Contains(part.Text))
+                        {
+                            continue; //Break conversion
+                        }
+                        else if (part.ContentDisposition?.Disposition == ContentDisposition.Inline &&
+                            string.IsNullOrEmpty(bodyPart.ContentId)) //If TextPart is inline but doesnt have content defined
+                        {
+                            msg.BodyText += Environment.NewLine + part.Text; //Append text to the body of the email
+                            msg.BodyHtml += part.Text.Replace(Environment.NewLine, "<br>");
+                            continue;
+                        }
                     }
-                    else if(part.ContentDisposition?.Disposition == ContentDisposition.Inline && 
-                        string.IsNullOrEmpty(bodyPart.ContentId)) //If TextPart is inline but doesnt have content defined
+
+                    //Get the body part and convert as needed
+                    var attachmentStream = new MemoryStream();
+                    var fileName = bodyPart.ContentType.Name;
+                    var extension = string.Empty;
+
+                    if (type.Equals(typeof(MessagePart)))
                     {
-                        msg.BodyText += Environment.NewLine + part.Text; //Append text to the body of the email
-                        msg.BodyHtml += part.Text.Replace(Environment.NewLine, "<br>");
-                        continue;
+                        var part = (MessagePart)bodyPart;
+                        part.Message.WriteTo(attachmentStream);
+                        if (part.Message != null)
+                            fileName = part.Message.Subject;
+                        extension = ".eml";
                     }
+                    else if (type.Equals(typeof(MessageDispositionNotification)))
+                    {
+                        var part = (MessageDispositionNotification)bodyPart;
+                        fileName = part.FileName;
+                    }
+                    else if (type.Equals(typeof(MessageDeliveryStatus)))
+                    {
+                        var part = (MessageDeliveryStatus)bodyPart;
+                        fileName = "details";
+                        extension = ".txt";
+                        part.WriteTo(FormatOptions.Default, attachmentStream, true);
+                    }
+                    else
+                    {
+                        var part = (MimePart)bodyPart;
+                        part.Content.DecodeTo(attachmentStream);
+                        fileName = part.FileName;
+                        bodyPart.WriteTo(attachmentStream);
+                    }
+
+                    fileName = string.IsNullOrWhiteSpace(fileName)
+                        ? "Nameless" + (NamelessCount++ > 0 ? NamelessCount.ToString() : "")
+                        : FileManager.RemoveInvalidFileNameChars(fileName);
+
+                    if (!string.IsNullOrEmpty(extension))
+                        fileName += extension;
+
+                    var inline = bodyPart.ContentDisposition?.Disposition.Equals(
+                        ContentDisposition.Inline,
+                        StringComparison.InvariantCultureIgnoreCase) ?? false;
+
+                    if (inline && string.IsNullOrEmpty(bodyPart.ContentId))
+                        inline = false;
+
+                    attachmentStream.Position = 0;
+                    msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
                 }
-
-                //Get the body part and convert as needed
-                var attachmentStream = new MemoryStream();
-                var fileName = bodyPart.ContentType.Name;
-                var extension = string.Empty;
-                
-                if (type.Equals(typeof(MessagePart))) 
-                {
-                    var part = (MessagePart)bodyPart;
-                    part.Message.WriteTo(attachmentStream);
-                    if (part.Message != null)
-                        fileName = part.Message.Subject;
-                    extension = ".eml";
-                }
-                else if ( type.Equals(typeof(MessageDispositionNotification) ))
-                {
-                    var part = (MessageDispositionNotification)bodyPart;
-                    fileName = part.FileName;
-                }
-                else if (type.Equals(typeof(MessageDeliveryStatus)))
-                {
-                    var part = (MessageDeliveryStatus)bodyPart;
-                    fileName = "details";
-                    extension = ".txt";
-                    part.WriteTo(FormatOptions.Default, attachmentStream, true);
-                }
-                else
-                {
-                    var part = (MimePart)bodyPart;
-                    part.Content.DecodeTo(attachmentStream);
-                    fileName = part.FileName;
-                    bodyPart.WriteTo(attachmentStream);
-                }
-
-                fileName = string.IsNullOrWhiteSpace(fileName)
-                    ? "Nameless" + (NamelessCount++ > 0 ? NamelessCount.ToString() : "")
-                    : FileManager.RemoveInvalidFileNameChars(fileName);
-
-                if (!string.IsNullOrEmpty(extension))
-                    fileName += extension;
-
-                var inline = bodyPart.ContentDisposition?.Disposition.Equals(
-                    ContentDisposition.Inline, 
-                    StringComparison.InvariantCultureIgnoreCase) ?? false;
-
-                if (inline && string.IsNullOrEmpty(bodyPart.ContentId))
-                {
-                    inline = false;
-                    //string errPath = @"E:\Users\Scott Dawson\Source Control\Git\Tools\Maildir2Pst";
-                    //File.Copy(emlFileName, errPath + @"\Maildir2Pst_Err\" + Path.GetFileName(emlFileName), true);
-                }
-
-                attachmentStream.Position = 0;
-
-                msg.Attachments.Add(attachmentStream, fileName, -1, inline, bodyPart.ContentId);
-             
+            }
+            catch
+            {
+                throw;
             }
 
             return msg;
