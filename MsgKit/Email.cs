@@ -188,7 +188,7 @@ namespace MsgKit
         /// <remarks>
         ///     This property has to be set to UTC datetime
         /// </remarks>
-        public DateTime? ReceivedOn { get; private set; }
+        public DateTime? ReceivedOn { get; set; }
 
         /// <summary>
         ///     Returns or sets the Internet Message Id
@@ -360,6 +360,9 @@ namespace MsgKit
 
             if (!SentOn.HasValue)
                 SentOn = DateTime.UtcNow;
+
+            if (ReceivedOn.HasValue)
+                TopLevelProperties.AddProperty(PropertyTags.PR_MESSAGE_DELIVERY_TIME, ReceivedOn.Value.ToUniversalTime());
 
             TopLevelProperties.AddProperty(PropertyTags.PR_CLIENT_SUBMIT_TIME, SentOn.Value.ToUniversalTime());
             TopLevelProperties.AddProperty(PropertyTags.PR_MESSAGE_FLAGS, messageFlags);
